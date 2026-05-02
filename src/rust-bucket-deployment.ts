@@ -12,7 +12,6 @@ import type {
   SourceConfig,
 } from "aws-cdk-lib/aws-s3-deployment";
 import { ValidationError } from "aws-cdk-lib/core/lib/errors";
-import type { lit } from "aws-cdk-lib/core/lib/private/literal-string";
 import { type BundlingOptions as CargoLambdaBundlingOptions, RustFunction } from "cargo-lambda-cdk";
 import { Construct } from "constructs";
 
@@ -594,8 +593,8 @@ function cloudFrontDistributionArn(scope: Construct, distributionId: string): st
   });
 }
 
-function literalString(value: string): ReturnType<typeof lit> {
-  return value as ReturnType<typeof lit>;
+function literalString(value: string): string {
+  return value;
 }
 
 function validateIntegerProps(

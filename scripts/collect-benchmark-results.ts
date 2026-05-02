@@ -13,7 +13,7 @@ export type BenchmarkHistoryRecord = {
   readonly series: string | null;
   readonly memoryMb: number | null;
   readonly phase: string;
-  readonly variant: string | null;
+  readonly assetSet: string | null;
   readonly fileCount: number | null;
   readonly totalBytes: number | null;
   readonly cdkDeploySeconds: number | null;
@@ -43,7 +43,7 @@ export type CollectBenchmarkOptions = {
   readonly region?: string;
   readonly profile?: string;
   readonly memoryMb?: number;
-  readonly variant?: string;
+  readonly assetSet?: string;
   readonly fileCount?: number;
   readonly totalBytes?: number;
   readonly cleanup?: string;
@@ -72,7 +72,7 @@ export function collectBenchmarkResult(options: CollectBenchmarkOptions): Benchm
     series: options.series ?? null,
     memoryMb: options.memoryMb ?? outputNumber(logText, "BenchmarkMemoryLimitMb"),
     phase: options.phase,
-    variant: options.variant ?? outputString(logText, "BenchmarkVariant"),
+    assetSet: options.assetSet ?? outputString(logText, "BenchmarkAssetSet"),
     fileCount: options.fileCount ?? outputNumber(logText, "BenchmarkFileCount"),
     totalBytes: options.totalBytes ?? outputNumber(logText, "BenchmarkTotalBytes"),
     cdkDeploySeconds: parseSeconds(logText, /Deployment time: ([\d.]+)s/),
@@ -123,7 +123,7 @@ function parseArgs(args: string[]): CollectBenchmarkOptions {
     region: values.get("region"),
     profile: values.get("profile"),
     memoryMb: optionalNumber(values, "memory-mb"),
-    variant: values.get("variant"),
+    assetSet: values.get("asset-set"),
     fileCount: optionalNumber(values, "file-count"),
     totalBytes: optionalNumber(values, "total-bytes"),
     cleanup: values.get("cleanup"),
@@ -153,7 +153,7 @@ function optionalNumber(values: Map<string, string>, name: string): number | und
 
 function usage(): never {
   console.error(
-    "Usage: node dist/scripts/collect-benchmark-results.js --log-file <path> --run-id <id> --run-date <YYYY-MM-DD> --phase <name> [--report-file <path>] [--summary-file <path>] [--profile <name>] [--memory-mb <n>]",
+    "Usage: node dist/scripts/collect-benchmark-results.js --log-file <path> --run-id <id> --run-date <YYYY-MM-DD> --phase <name> [--report-file <path>] [--summary-file <path>] [--profile <name>] [--memory-mb <n>] [--asset-set <name>]",
   );
   process.exit(1);
 }

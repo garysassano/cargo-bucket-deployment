@@ -37,8 +37,8 @@ class BenchmarkAssetsRustBucketDeploymentStack extends Stack {
       value: bundle.profile,
     });
 
-    new CfnOutput(this, "BenchmarkVariant", {
-      value: bundle.variant,
+    new CfnOutput(this, "BenchmarkAssetSet", {
+      value: bundle.assetSet,
     });
 
     new CfnOutput(this, "BenchmarkFileCount", {

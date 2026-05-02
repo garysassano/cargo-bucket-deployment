@@ -33,7 +33,7 @@ Benchmark runs should answer these questions:
 - How fast is cold create for different bundle shapes?
 - How fast is unchanged redeploy?
 - How much work is done for sparse same-size updates?
-- How much work is done for pruned updates?
+- How much work is done when source files are removed and destination pruning is enabled?
 - How much unchanged redeploy time is spent reading and hashing existing ZIP entries because no source MD5 catalog is available?
 - How effective is source block coalescing?
 - Which phase dominates total deployment time: CDK, CloudFormation, provider planning, source reads, hashing, uploads, deletes, or invalidation?
@@ -43,7 +43,7 @@ Benchmark runs should answer these questions:
 The `benchmark-assets` example generates deterministic static-site bundles under `.benchmark-assets/`, which is ignored by git.
 
 ```bash
-RBD_BENCH_PROFILE=mixed RBD_BENCH_VARIANT=v1 RBD_BENCH_STACK_SUFFIX=RunA pnpm example deploy benchmark-assets
+RBD_BENCH_PROFILE=mixed RBD_BENCH_ASSET_SET=baseline RBD_BENCH_STACK_SUFFIX=RunA pnpm example deploy benchmark-assets
 RBD_BENCH_STACK_SUFFIX=RunA pnpm example destroy benchmark-assets
 ```
 
@@ -52,11 +52,11 @@ Environment variables:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `RBD_BENCH_PROFILE` | `mixed` | Asset shape: `tiny-many`, `mixed`, or `large-few`. |
-| `RBD_BENCH_VARIANT` | `v1` | Asset variant: `v1`, `v2`, or `pruned`. |
+| `RBD_BENCH_ASSET_SET` | `baseline` | Generated source asset set: `baseline`, `sparse-changed`, or `files-removed`. |
 | `RBD_BENCH_STACK_SUFFIX` | none | Adds a suffix to the benchmark stack name so multiple runs can coexist. |
 | `RBD_BENCH_DESTINATION_PREFIX` | `benchmark-site` | Destination prefix inside the generated bucket. |
 | `RBD_BENCH_MEMORY_LIMIT_MB` | `1024` | Provider Lambda memory size in MiB. Use distinct stack suffixes when comparing memory sizes. |
-| `RBD_BENCH_PRUNE` | `true` | Set to `false` to disable prune. |
+| `RBD_BENCH_PRUNE` | `true` | Deployment behavior flag. Set to `false` to keep destination objects that are missing from the current source bundle. |
 | `RBD_BENCH_WAIT` | `true` | Present for property toggling; the benchmark stack currently has no CloudFront distribution. |
 
 Asset profiles:
@@ -67,26 +67,26 @@ Asset profiles:
 | `mixed` | SPA-like bundle with chunks, source maps, JSON, media, and fonts. | Default realistic static-site profile. |
 | `large-few` | Fewer large JS, source map, and media files. | Range reads, decompression, hash, upload streaming, block coalescing. |
 
-Variants:
+Asset sets:
 
-| Variant | Behavior | Signal |
+| Asset set | Behavior | Signal |
 | --- | --- | --- |
-| `v1` | Baseline bundle. | Cold create and unchanged redeploy baseline. |
-| `v2` | Same file set and sizes, with a few changed files. | Sparse same-size update behavior. |
-| `pruned` | Removes about ten percent of files. | Delete planning and prune behavior. |
+| `baseline` | Baseline bundle. | Cold create and unchanged redeploy baseline. |
+| `sparse-changed` | Same file set and sizes as `baseline`, with a few changed files. | Sparse same-size update behavior. |
+| `files-removed` | Removes about ten percent of files from the generated source bundle. | Delete planning when `RBD_BENCH_PRUNE=true`; retained-object behavior when `RBD_BENCH_PRUNE=false`. |
 
 ## Minimum Run Matrix
 
 Run this matrix for every performance-significant provider change:
 
-| Phase | Profile | Variant sequence | Repetitions | Required evidence |
+| Phase | Profile | Asset set sequence | Repetitions | Required evidence |
 | --- | --- | --- | ---: | --- |
-| Cold create | `tiny-many`, `mixed`, `large-few` | `v1` | 3 | Provider duration, memory, request counts, bytes written. |
-| Unchanged redeploy | `tiny-many`, `mixed`, `large-few` | `v1` -> `v1` | 5 | Skip counters, destination writes near zero, median/p90. |
-| Sparse update | `mixed`, `large-few` | `v1` -> `v2` | 3 | Changed count, skipped count, source bytes read, destination bytes written. |
-| Prune update | `tiny-many`, `mixed` | `v1` -> `pruned` | 3 | Deleted count, delete request batches, retained object validation. |
-| No-prune update | `mixed` | `v1` -> `pruned` with `RBD_BENCH_PRUNE=false` | 1 | Removed source keys remain in destination. |
-| Prefix update | `mixed` | `v1` to new prefix | 1 | Old prefix cleanup behavior when `retainOnDelete=false`. |
+| Cold create | `tiny-many`, `mixed`, `large-few` | `baseline` | 3 | Provider duration, memory, request counts, bytes written. |
+| Unchanged redeploy | `tiny-many`, `mixed`, `large-few` | `baseline` -> `baseline` | 5 | Skip counters, destination writes near zero, median/p90. |
+| Sparse update | `mixed`, `large-few` | `baseline` -> `sparse-changed` | 3 | Changed count, skipped count, source bytes read, destination bytes written. |
+| Prune update | `tiny-many`, `mixed` | `baseline` -> `files-removed` | 3 | Deleted count, delete request batches, retained object validation. |
+| No-prune update | `mixed` | `baseline` -> `files-removed` with `RBD_BENCH_PRUNE=false` | 1 | Removed source keys remain in destination. |
+| Prefix update | `mixed` | `baseline` to new prefix | 1 | Old prefix cleanup behavior when `retainOnDelete=false`. |
 | Delete cleanup | `mixed` | destroy after deploy | 1 | Destination cleanup and stack destroy success. |
 
 Use a unique `RBD_BENCH_STACK_SUFFIX` per comparison branch or run group.
@@ -103,7 +103,7 @@ Cold create:
 
 ```bash
 RBD_BENCH_PROFILE=mixed \
-RBD_BENCH_VARIANT=v1 \
+RBD_BENCH_ASSET_SET=baseline \
 RBD_BENCH_STACK_SUFFIX=BenchA \
 RBD_BENCH_MEMORY_LIMIT_MB=1024 \
 pnpm example deploy benchmark-assets
@@ -113,7 +113,7 @@ Unchanged redeploy with a provider invocation:
 
 ```bash
 RBD_BENCH_PROFILE=mixed \
-RBD_BENCH_VARIANT=v1 \
+RBD_BENCH_ASSET_SET=baseline \
 RBD_BENCH_STACK_SUFFIX=BenchA \
 RBD_BENCH_MEMORY_LIMIT_MB=1024 \
 RBD_BENCH_WAIT=false \
@@ -126,7 +126,7 @@ Sparse same-size update:
 
 ```bash
 RBD_BENCH_PROFILE=mixed \
-RBD_BENCH_VARIANT=v2 \
+RBD_BENCH_ASSET_SET=sparse-changed \
 RBD_BENCH_STACK_SUFFIX=BenchA \
 RBD_BENCH_MEMORY_LIMIT_MB=1024 \
 pnpm example deploy benchmark-assets
@@ -136,7 +136,7 @@ Prune update:
 
 ```bash
 RBD_BENCH_PROFILE=mixed \
-RBD_BENCH_VARIANT=pruned \
+RBD_BENCH_ASSET_SET=files-removed \
 RBD_BENCH_STACK_SUFFIX=BenchA \
 RBD_BENCH_MEMORY_LIMIT_MB=1024 \
 pnpm example deploy benchmark-assets
@@ -159,7 +159,7 @@ For every run:
 - provider binary build mode and target architecture
 - AWS region
 - stack suffix
-- profile and variant
+- profile and asset set
 - generated file count and total bytes
 - phase: cold create, unchanged redeploy, sparse update, prune update, destroy
 - local wall time around the `pnpm example deploy` command
@@ -274,7 +274,7 @@ The current collector can append sanitized phase records to `docs/benchmark-hist
 
 ```bash
 pnpm benchmark:collect \
-  --log-file /tmp/rbd-aws-validation-20260502/benchmark-memory/mem512-create-v1.log \
+  --log-file /tmp/rbd-aws-validation-20260502/benchmark-memory/mem512-create-baseline.log \
   --report-file /tmp/rbd-aws-validation-20260502/benchmark-memory/report-example.json \
   --summary-file /tmp/rbd-aws-validation-20260502/benchmark-memory/summary-example.jsonl \
   --run-id 2026-05-02-mixed-memory-matrix \
@@ -286,13 +286,13 @@ pnpm benchmark:collect \
   --region ap-southeast-2 \
   --profile mixed \
   --memory-mb 512 \
-  --variant v1 \
+  --asset-set baseline \
   --file-count 442 \
   --total-bytes 52904649
 ```
 
 - builds the project once
-- deploys each profile/variant sequence with unique stack suffixes
+- deploys each profile/asset-set sequence with unique stack suffixes
 - captures local wall time
 - collects CloudFormation stack events for the custom resource timing
 - queries CloudWatch Logs for provider summary lines and Lambda REPORT lines
@@ -321,7 +321,7 @@ Every committed benchmark result must be represented as sanitized records in `do
 | `series` | Logical run series, for example `full-create-update-prune` or `forced-unchanged`. |
 | `memoryMb` | Provider Lambda memory size in MiB. |
 | `phase` | Measured phase name. |
-| `variant` | Asset variant, or `null` when not applicable. |
+| `assetSet` | Source asset set, or `null` when not applicable. |
 | `fileCount` | Source file count for the phase, or `null` when not applicable. |
 | `totalBytes` | Source total bytes for the phase, or `null` when not applicable. |
 | `cdkDeploySeconds` | CDK-reported deploy time, or `null` when unavailable. |
@@ -348,16 +348,16 @@ Metadata table:
 | Result documentation commit | Commit that first recorded the sanitized result, or blank until committed |
 | Region | AWS region only, not account information |
 | Profile | Benchmark asset profile |
-| Baseline variant | Baseline asset variant |
+| Baseline asset set | Baseline source asset set |
 | Baseline bundle | File count and total bytes |
-| Comparison variants | Variant names and file counts/bytes when measured |
+| Comparison asset sets | Asset set names and file counts/bytes when measured |
 | Provider memory | Memory settings included in the run |
 | Cleanup | Stack cleanup outcome |
 | Notes | Short caveats, for example missing fields or forced update behavior |
 
 Result table columns:
 
-| Memory | Phase | Variant | CDK deploy time | Local wall time | Provider duration | Billed duration | Init duration | Max memory |
+| Memory | Phase | Asset set | CDK deploy time | Local wall time | Provider duration | Billed duration | Init duration | Max memory |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
 Leave unavailable Markdown cells empty. Use `not invoked` only when CloudFormation/CDK intentionally did not invoke the provider for that phase. Use `n/a` only when a field does not apply to the phase.
@@ -393,42 +393,42 @@ For branch comparisons:
 | Result documentation commit | Pending |
 | Region | `ap-southeast-2` |
 | Profile | `large-few` |
-| Baseline variant | `v1` |
+| Baseline asset set | `baseline` |
 | Baseline bundle | 32 files, 144,167,470 bytes |
-| Comparison variants | `v2`: 32 files, 144,167,470 bytes |
+| Comparison asset sets | `sparse-changed`: 32 files, 144,167,470 bytes |
 | Provider memory | 512, 1024, and 2048 MiB |
 | Cleanup | All benchmark stacks destroyed after collection |
-| Notes | Forced unchanged rows used `RBD_BENCH_WAIT=false` on a stack with no CloudFront distribution. Rows include sanitized provider summary counters in `docs/benchmark-history.jsonl`. |
+| Notes | Forced unchanged rows used `RBD_BENCH_WAIT=false` on a stack with no CloudFront distribution. |
 
 Large-few create/unchanged/update sequence:
 
-| Memory | Phase | Variant | CDK deploy time | Local wall time | Provider duration | Billed duration | Init duration | Max memory |
+| Memory | Phase | Asset set | CDK deploy time | Local wall time | Provider duration | Billed duration | Init duration | Max memory |
 | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 512 MiB | Cold create | `v1` | 66.03 s | 161.16 s | 1.876 s | 2.040 s | 0.163 s | 92 MB |
-| 512 MiB | Forced unchanged | `v1` | 14.34 s | 59.38 s | 0.237 s | 0.237 s | n/a | 92 MB |
-| 512 MiB | Sparse update | `v2` | 14.16 s | 60.92 s | 0.471 s | 0.471 s | n/a | 92 MB |
+| 512 MiB | Cold create | `baseline` | 66.03 s | 161.16 s | 1.876 s | 2.040 s | 0.163 s | 92 MB |
+| 512 MiB | Forced unchanged | `baseline` | 14.34 s | 59.38 s | 0.237 s | 0.237 s | n/a | 92 MB |
+| 512 MiB | Sparse update | `sparse-changed` | 14.16 s | 60.92 s | 0.471 s | 0.471 s | n/a | 92 MB |
 | 512 MiB | Destroy | n/a | n/a | 45.31 s | 0.230 s | 0.400 s | 0.170 s | 34 MB |
-| 1024 MiB | Cold create | `v1` | 58.09 s | 99.99 s | 0.941 s | 1.071 s | 0.130 s | 86 MB |
-| 1024 MiB | Forced unchanged | `v1` | 14.26 s | 58.77 s | 0.199 s | 0.200 s | n/a | 86 MB |
-| 1024 MiB | Sparse update | `v2` | 14.18 s | 72.80 s | 0.387 s | 0.387 s | n/a | 86 MB |
+| 1024 MiB | Cold create | `baseline` | 58.09 s | 99.99 s | 0.941 s | 1.071 s | 0.130 s | 86 MB |
+| 1024 MiB | Forced unchanged | `baseline` | 14.26 s | 58.77 s | 0.199 s | 0.200 s | n/a | 86 MB |
+| 1024 MiB | Sparse update | `sparse-changed` | 14.18 s | 72.80 s | 0.387 s | 0.387 s | n/a | 86 MB |
 | 1024 MiB | Destroy | n/a | n/a | 44.37 s | 0.173 s | 0.311 s | 0.137 s | 34 MB |
-| 2048 MiB | Cold create | `v1` | 58.68 s | 100.68 s | 0.674 s | 0.812 s | 0.137 s | 84 MB |
-| 2048 MiB | Forced unchanged | `v1` | 14.25 s | 58.75 s | 0.200 s | 0.200 s | n/a | 84 MB |
-| 2048 MiB | Sparse update | `v2` | 14.12 s | 56.99 s | 0.327 s | 0.327 s | n/a | 84 MB |
+| 2048 MiB | Cold create | `baseline` | 58.68 s | 100.68 s | 0.674 s | 0.812 s | 0.137 s | 84 MB |
+| 2048 MiB | Forced unchanged | `baseline` | 14.25 s | 58.75 s | 0.200 s | 0.200 s | n/a | 84 MB |
+| 2048 MiB | Sparse update | `sparse-changed` | 14.12 s | 56.99 s | 0.327 s | 0.327 s | n/a | 84 MB |
 | 2048 MiB | Destroy | n/a | n/a | 37.91 s | 0.043 s | 0.044 s | n/a | 84 MB |
 
-Provider summary highlights:
+Provider telemetry details:
 
-| Memory | Phase | Uploaded objects | Skipped objects | Uploaded bytes | Source fetched bytes |
-| ---: | --- | ---: | ---: | ---: | ---: |
-| 512 MiB | Cold create | 33 | 0 | 144,167,564 | 620,873 |
-| 512 MiB | Forced unchanged | 0 | 33 | 0 | 1,125 |
-| 512 MiB | Sparse update | 4 | 29 | 8,209,834 | 199,427 |
-| 1024 MiB | Cold create | 33 | 0 | 144,167,564 | 620,873 |
-| 1024 MiB | Forced unchanged | 0 | 33 | 0 | 1,125 |
-| 1024 MiB | Sparse update | 4 | 29 | 8,209,834 | 199,427 |
-| 2048 MiB | Cold create | 33 | 0 | 144,167,564 | 620,873 |
-| 2048 MiB | Forced unchanged | 0 | 33 | 0 | 1,125 |
-| 2048 MiB | Sparse update | 4 | 29 | 8,209,834 | 199,427 |
+| Memory | Phase | Asset set | Provider summary duration | Plan | List | Transfer | Planned | Destination | Uploaded | Skipped | Catalog skips | Source GETs | Source fetched | Put retries |
+| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 512 MiB | Cold create | `baseline` | 1.829 s | 0.398 s | 0.035 s | 1.394 s | 33 | 0 | 33 | 0 | 0 | 3 | 620,873 | 0 |
+| 512 MiB | Forced unchanged | `baseline` | 0.181 s | 0.142 s | 0.038 s | 0.000 s | 33 | 33 | 0 | 33 | 33 | 2 | 1,125 | 0 |
+| 512 MiB | Sparse update | `sparse-changed` | 0.421 s | 0.213 s | 0.035 s | 0.172 s | 33 | 33 | 4 | 29 | 29 | 3 | 199,427 | 0 |
+| 1024 MiB | Cold create | `baseline` | 0.894 s | 0.216 s | 0.035 s | 0.642 s | 33 | 0 | 33 | 0 | 0 | 3 | 620,873 | 0 |
+| 1024 MiB | Forced unchanged | `baseline` | 0.151 s | 0.112 s | 0.038 s | 0.000 s | 33 | 33 | 0 | 33 | 33 | 2 | 1,125 | 0 |
+| 1024 MiB | Sparse update | `sparse-changed` | 0.292 s | 0.151 s | 0.033 s | 0.106 s | 33 | 33 | 4 | 29 | 29 | 3 | 199,427 | 0 |
+| 2048 MiB | Cold create | `baseline` | 0.625 s | 0.159 s | 0.038 s | 0.427 s | 33 | 0 | 33 | 0 | 0 | 3 | 620,873 | 0 |
+| 2048 MiB | Forced unchanged | `baseline` | 0.154 s | 0.112 s | 0.041 s | 0.000 s | 33 | 33 | 0 | 33 | 33 | 2 | 1,125 | 0 |
+| 2048 MiB | Sparse update | `sparse-changed` | 0.274 s | 0.113 s | 0.040 s | 0.120 s | 33 | 33 | 4 | 29 | 29 | 3 | 199,427 | 0 |
 
 These results validate that the ranged, no-disk ZIP path stays comfortably below the 1024 MiB default for the `large-few` profile. The highest reported memory across this matrix was 92 MB. Moving from 512 to 1024 MiB roughly halved cold-create provider duration for this profile, while 2048 MiB provided a smaller additional cold-create improvement and only modest sparse-update improvement.

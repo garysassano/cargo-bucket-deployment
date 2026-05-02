@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export type BenchmarkAssetProfile = "tiny-many" | "mixed" | "large-few";
-export type BenchmarkAssetVariant = "v1" | "v2" | "pruned";
+export type BenchmarkAssetSet = "baseline" | "sparse-changed" | "files-removed";
 
 type FileSpec = {
   readonly path: string;
@@ -13,30 +13,30 @@ type FileSpec = {
 type GeneratedBundle = {
   readonly root: string;
   readonly profile: BenchmarkAssetProfile;
-  readonly variant: BenchmarkAssetVariant;
+  readonly assetSet: BenchmarkAssetSet;
   readonly fileCount: number;
   readonly totalBytes: number;
 };
 
 const DEFAULT_PROFILE: BenchmarkAssetProfile = "mixed";
-const DEFAULT_VARIANT: BenchmarkAssetVariant = "v1";
+const DEFAULT_ASSET_SET: BenchmarkAssetSet = "baseline";
 const BINARY_CHUNK_BYTES = 1024 * 1024;
 
 export function ensureBenchmarkAssets(options?: {
   readonly profile?: string;
-  readonly variant?: string;
+  readonly assetSet?: string;
   readonly outputRoot?: string;
 }): GeneratedBundle {
   const profile = parseProfile(options?.profile ?? process.env.RBD_BENCH_PROFILE);
-  const variant = parseVariant(options?.variant ?? process.env.RBD_BENCH_VARIANT);
+  const assetSet = parseAssetSet(options?.assetSet ?? process.env.RBD_BENCH_ASSET_SET);
   const outputRoot = options?.outputRoot ?? join(process.cwd(), ".benchmark-assets");
-  const root = join(outputRoot, profile, variant);
+  const root = join(outputRoot, profile, assetSet);
   const markerPath = join(root, ".generated.json");
-  const specs = buildSpecs(profile, variant);
+  const specs = buildSpecs(profile, assetSet);
   const totalBytes = specs.reduce((sum, spec) => sum + spec.size, 0);
 
   if (existsSync(markerPath)) {
-    return { root, profile, variant, fileCount: specs.length, totalBytes };
+    return { root, profile, assetSet, fileCount: specs.length, totalBytes };
   }
 
   rmSync(root, { force: true, recursive: true });
@@ -45,18 +45,18 @@ export function ensureBenchmarkAssets(options?: {
   for (const spec of specs) {
     const filePath = join(root, spec.path);
     mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, renderFile(spec, profile, variant));
+    writeFileSync(filePath, renderFile(spec, profile, assetSet));
   }
 
   writeFileSync(
     markerPath,
-    `${JSON.stringify({ profile, variant, fileCount: specs.length, totalBytes }, null, 2)}\n`,
+    `${JSON.stringify({ profile, assetSet, fileCount: specs.length, totalBytes }, null, 2)}\n`,
   );
 
-  return { root, profile, variant, fileCount: specs.length, totalBytes };
+  return { root, profile, assetSet, fileCount: specs.length, totalBytes };
 }
 
-function buildSpecs(profile: BenchmarkAssetProfile, variant: BenchmarkAssetVariant): FileSpec[] {
+function buildSpecs(profile: BenchmarkAssetProfile, assetSet: BenchmarkAssetSet): FileSpec[] {
   const specs: FileSpec[] = [
     { path: "index.html", size: 24 * 1024, kind: "text" },
     { path: "asset-manifest.json", size: 18 * 1024, kind: "json" },
@@ -86,7 +86,7 @@ function buildSpecs(profile: BenchmarkAssetProfile, variant: BenchmarkAssetVaria
     addSeries(specs, "assets/maps/vendor", ".js.map", 8, 1024 * 1024, 4 * 1024 * 1024, "json");
   }
 
-  if (variant === "pruned") {
+  if (assetSet === "files-removed") {
     return specs.filter((_, index) => index % 10 !== 0);
   }
 
@@ -116,9 +116,9 @@ function addSeries(
 function renderFile(
   spec: FileSpec,
   profile: BenchmarkAssetProfile,
-  variant: BenchmarkAssetVariant,
+  assetSet: BenchmarkAssetSet,
 ): Buffer {
-  const seed = seedFor(spec.path, profile, variant);
+  const seed = seedFor(spec.path, profile, assetSet);
 
   if (spec.kind === "binary") {
     return renderBinary(spec.size, seed);
@@ -190,10 +190,15 @@ function sized(index: number, minSize: number, maxSize: number): number {
 function seedFor(
   path: string,
   profile: BenchmarkAssetProfile,
-  variant: BenchmarkAssetVariant,
+  assetSet: BenchmarkAssetSet,
 ): number {
-  const variantSalt = variant === "v1" ? "stable" : variant === "v2" ? changedSalt(path) : "pruned";
-  return hash(`${profile}:${variantSalt}:${path}`);
+  const assetSetSalt =
+    assetSet === "baseline"
+      ? "stable"
+      : assetSet === "sparse-changed"
+        ? changedSalt(path)
+        : "files-removed";
+  return hash(`${profile}:${assetSetSalt}:${path}`);
 }
 
 function changedSalt(path: string): string {
@@ -233,11 +238,11 @@ function parseProfile(value: string | undefined): BenchmarkAssetProfile {
   return DEFAULT_PROFILE;
 }
 
-function parseVariant(value: string | undefined): BenchmarkAssetVariant {
-  if (value === "v1" || value === "v2" || value === "pruned") {
+function parseAssetSet(value: string | undefined): BenchmarkAssetSet {
+  if (value === "baseline" || value === "sparse-changed" || value === "files-removed") {
     return value;
   }
-  return DEFAULT_VARIANT;
+  return DEFAULT_ASSET_SET;
 }
 
 if (require.main === module) {
